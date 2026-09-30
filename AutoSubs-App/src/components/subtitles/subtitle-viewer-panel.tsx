@@ -3,6 +3,7 @@ import { platform } from "@tauri-apps/plugin-os";
 import {
   FileUp,
   History,
+  Minimize2,
   Repeat2,
   X,
   Search,
@@ -474,6 +475,17 @@ export function SubtitleViewerPanel({
   const shellClassName = "flex h-full min-h-0 flex-col overflow-hidden";
   const headerClassName = "shrink-0 p-3 pt-0 pb-1";
 
+  const handleCloseGaps = () => {
+    if (subtitles.length < 2) return;
+    const next = subtitles.map((seg, i) => {
+      if (i >= subtitles.length - 1) return seg;
+      const gap = subtitles[i + 1].start - seg.end;
+      if (gap > 0) return { ...seg, end: subtitles[i + 1].start };
+      return seg;
+    });
+    updateSubtitles(next);
+  };
+
   const handleReplaceAll = () => {
     const re = buildFindRegExp();
     if (!re) return;
@@ -582,6 +594,22 @@ export function SubtitleViewerPanel({
                   {t("importExport.importTab")}
                 </TooltipContent>
               </Tooltip>
+              {hasSubtitles && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleCloseGaps}
+                    >
+                      <Minimize2 />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Close gaps between subtitles
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <TranscriptHistoryPopover
                 subtitleDocuments={transcriptDocuments}
                 isLoading={isLoadingTranscriptDocuments}

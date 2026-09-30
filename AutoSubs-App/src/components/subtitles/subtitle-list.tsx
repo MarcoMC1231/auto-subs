@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSubtitleDocument } from "@/contexts/SubtitleDocumentContext"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
-import { ArrowDown, ArrowUp, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Scissors, Trash2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SpeakerSettings } from "@/components/common/speaker-settings"
@@ -52,6 +52,7 @@ const SubtitleList = ({
     const [editingSubtitleId, setEditingSubtitleId] = React.useState<number | null>(null);
 
     const containerRef = useRef<HTMLDivElement>(null);
+    const splitJustDone = useRef(false);
 
     const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -189,7 +190,8 @@ const SubtitleList = ({
             const el = inlineEditorRef.current;
             const range = document.createRange();
             range.selectNodeContents(el);
-            range.collapse(false);
+            range.collapse(splitJustDone.current ? true : false);
+            splitJustDone.current = false;
             const selection = window.getSelection();
             selection?.removeAllRanges();
             selection?.addRange(range);
@@ -269,6 +271,72 @@ const SubtitleList = ({
         if (inlineEditorRef.current) {
             inlineEditorRef.current.innerText = nextCurrText;
         }
+    };
+
+    const handleSplitAtCursor = (index: number) => {
+        const el = inlineEditorRef.current;
+        if (!el) return;
+
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+
+        const range = sel.getRangeAt(0);
+
+        const beforeRange = document.createRange();
+        beforeRange.setStart(el, 0);
+        beforeRange.setEnd(range.startContainer, range.startOffset);
+        const textBefore = beforeRange.toString().trim();
+
+        const afterRange = document.createRange();
+        afterRange.setStart(range.startContainer, range.startOffset);
+        afterRange.setEnd(el, el.childNodes.length);
+        const textAfter = afterRange.toString().trim();
+
+        if (!textBefore && !textAfter) return;
+
+        const seg = subtitles[index];
+        if (!seg) return;
+
+        const wordsArr = seg.words ?? [];
+        const wordsBeforeCount = textBefore.split(/\s+/).filter(Boolean).length;
+
+        let splitTime: number;
+        let wordsA: typeof wordsArr = [];
+        let wordsB: typeof wordsArr = [];
+
+        if (wordsArr.length > 0 && wordsBeforeCount > 0 && wordsBeforeCount < wordsArr.length) {
+            wordsA = wordsArr.slice(0, wordsBeforeCount);
+            wordsB = wordsArr.slice(wordsBeforeCount);
+            splitTime = wordsB[0].start;
+        } else {
+            const totalWords = textBefore.split(/\s+/).filter(Boolean).length + textAfter.split(/\s+/).filter(Boolean).length;
+            const ratio = totalWords > 0 ? wordsBeforeCount / totalWords : 0.5;
+            splitTime = seg.start + (seg.end - seg.start) * ratio;
+        }
+
+        const newSubtitles = [...subtitles];
+        newSubtitles.splice(index, 1,
+            { ...seg, end: splitTime, text: textBefore, words: wordsA },
+            { ...seg, id: Date.now(), start: splitTime, text: textAfter, words: wordsB }
+        );
+        updateSubtitles(newSubtitles);
+
+        splitJustDone.current = true;
+        setSelectedIndex(index + 1);
+        setDraftText(textAfter);
+        setOriginalText(textAfter);
+    };
+
+    const handleDeleteSegment = (index: number) => {
+        if (subtitles.length <= 1) return;
+        const newSubtitles = [...subtitles];
+        newSubtitles.splice(index, 1);
+        const focusIndex = Math.min(index, newSubtitles.length - 1);
+        const focusText = newSubtitles[focusIndex]?.text ?? "";
+        updateSubtitles(newSubtitles);
+        setSelectedIndex(focusIndex);
+        setDraftText(focusText);
+        setOriginalText(focusText);
     };
 
     const renderHighlightedText = (text: string, query: string) => {
@@ -449,7 +517,11 @@ const SubtitleList = ({
 
                                                     if (e.key === "Enter" && !e.shiftKey) {
                                                         e.preventDefault();
-                                                        inlineEditorRef.current?.blur();
+                                                        handleSplitAtCursor(index);
+                                                    }
+                                                    if ((e.key === "Backspace" || e.key === "Delete") && (inlineEditorRef.current?.innerText ?? "").trim() === "") {
+                                                        e.preventDefault();
+                                                        handleDeleteSegment(index);
                                                     }
                                                 }}
                                                 className="rounded-md text-foreground leading-relaxed whitespace-pre-line outline-none"
@@ -500,6 +572,45 @@ const SubtitleList = ({
                                                 </TooltipTrigger>
                                                 <TooltipContent className="max-w-52">
                                                     <p>Move last word to next subtitle while preserving word timing</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="outline"
+                                                        className="text-xs h-8"
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSplitAtCursor(index);
+                                                        }}
+                                                    >
+                                                        <Scissors />
+                                                        Split
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent className="max-w-60">
+                                                    <p>Split at cursor position (or press Enter)</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="outline"
+                                                        className="text-xs h-8 text-destructive hover:bg-destructive/10"
+                                                        disabled={subtitles.length <= 1}
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteSegment(index);
+                                                        }}
+                                                    >
+                                                        <Trash2 />
+                                                        Delete
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent className="max-w-52">
+                                                    <p>Delete this subtitle segment</p>
                                                 </TooltipContent>
                                             </Tooltip>
                                         </ButtonGroup>
