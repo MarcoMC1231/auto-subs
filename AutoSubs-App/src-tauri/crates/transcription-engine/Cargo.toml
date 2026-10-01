@@ -44,7 +44,7 @@ vulkan = ["whisper-rs/vulkan"]
 # Platform/arch presets
 mac-aarch = ["coreml", "metal"]
 mac-x86_64 = ["metal", "diarize/load-dynamic", "load-dynamic"]
-windows = ["vulkan", "directml"]  # Whisper GPU via Vulkan + Pyannote via DirectML (requires Vulkan SDK: https://vulkan.lunarg.com)
+windows = []  # GPU disabled for dev build — re-enable with ["vulkan", "directml"] for release
 linux = ["vulkan"]
 
 # Note: Had issues with OpenBLAS + Vulkan, so removed OpenBLAS
